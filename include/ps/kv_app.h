@@ -274,6 +274,7 @@ class KVWorker : public SimpleApp {
     int ts = AddPullCB(keys, vals, lens, cmd, cb);
     KVPairs<Val> kvs;
     kvs.keys = keys;
+    kvs.lens = *lens;
     kvs.priority = priority;
     Send(ts, false, true, cmd, kvs);
     return ts;
@@ -462,6 +463,83 @@ struct KVServerDefaultHandle {
   std::unordered_map<Key, Val> store;
 };
 
+/**
+ * \brief hbsun adding pushed kv into store
+ */
+    template <typename Val>
+    struct KVServerMatrixHandle {
+        void operator()(
+                const KVMeta& req_meta, const KVPairs<Val>& req_data, KVServer<Val>* server) {
+            size_t n = req_data.keys.size();
+            KVPairs<Val> res;
+
+            if(req_meta.push || req_meta.pull)
+                CHECK_EQ(req_data.keys.size(), req_data.lens.size())<<"key size not match len size"
+                <<req_data.keys.size()<<" "<<req_data.lens.size()<<" "<<req_meta.push<<" "<<req_meta.pull;
+
+            int sum_length = 0;
+            if (req_meta.pull) {
+                res.keys = req_data.keys;
+                res.lens = req_data.lens;
+                for(const auto &l: req_data.lens) sum_length += l;
+                res.vals.resize(sum_length);
+            }
+
+            int k = 0; // the index of value
+            for (size_t i = 0; i < n; ++i) {
+
+                Key key = req_data.keys[i];
+                size_t len = req_data.lens[i];
+
+                if(store.find(key) != store.end()){
+                    CHECK_EQ(store[key].size(), len)<<"key="<<key<<" | len="<<len
+                            <<" | store[key].size()="<<store[key].size()<<" | "<<req_meta.pull;
+                } else{
+                    CHECK(!req_meta.pull)<<" For server pull, not have the key: "<<key;
+                    store[key].assign(len,0);
+                }
+
+                auto &value_set = store[key];
+                if (req_meta.push) {
+                    for(size_t j = 0; j < value_set.size(); j++){
+                        value_set[j] += req_data.vals[k++];
+                    }
+                }
+                if (req_meta.pull) {
+                    for(size_t j = 0; j < value_set.size(); j++){
+                        res.vals[k++] = value_set[j];
+                    }
+                }
+
+            }
+
+            if(req_meta.push) CHECK_EQ(static_cast<size_t>(k), req_data.vals.size());
+            if(req_meta.pull){
+                CHECK_EQ(static_cast<size_t>(k), res.vals.size());
+                CHECK_EQ(k, sum_length);
+            }
+
+//            if(req_meta.push){
+//                std::cout<<"hbsun debug server push: "<<req_data.keys[0]<<std::endl;
+//                for(int i=0;i<10;i++){
+//                    std::cout<<req_data.vals[i]<<" ";
+//                }
+//                std::cout<<std::endl;
+//            }
+//            else if(req_meta.pull){
+//                std::cout<<"hbsun debug server pull: "<<req_data.keys[0]<<std::endl;
+//                for(int i=0;i<10;i++){
+//                    std::cout<<res.vals[i]<<" ";
+//                }
+//                std::cout<<std::endl;
+//            }
+
+            server->Response(req_meta, res);
+
+        }
+        std::unordered_map<Key, std::vector<Val>> store;
+    };
+
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -470,6 +548,7 @@ void KVServer<Val>::Process(const Message& msg) {
   if (msg.meta.simple_app) {
     SimpleApp::Process(msg); return;
   }
+//  std::cout<<"hbsun debug server process: "<<msg.DebugString()<<std::endl;
   KVMeta meta;
   meta.cmd       = msg.meta.head;
   meta.push      = msg.meta.push;
@@ -548,7 +627,7 @@ void KVWorker<Val>::DefaultSlicer(
     k = send.vals.size() / send.keys.size();
     CHECK_EQ(k * send.keys.size(), send.vals.size());
   } else {
-    CHECK_EQ(send.keys.size(), send.lens.size());
+    CHECK_EQ(send.keys.size(), send.lens.size())<<": "<<send.keys[0]<<" "<<send.keys.size()<<" "<<send.lens.size();
   }
 
   // slice
@@ -563,7 +642,7 @@ void KVWorker<Val>::DefaultSlicer(
     if (send.lens.size()) {
       kv.lens = send.lens.segment(pos[i], pos[i+1]);
       for (int l : kv.lens) val_end += l;
-      kv.vals = send.vals.segment(val_begin, val_end);
+      if(send.vals.size()) kv.vals = send.vals.segment(val_begin, val_end); //hbsun add if for the pull
       val_begin = val_end;
     } else {
       kv.vals = send.vals.segment(pos[i]*k, pos[i+1]*k);
@@ -686,7 +765,7 @@ int KVWorker<Val>::AddPullCB(
       if (vals->empty()) {
         vals->resize(total_val);
       } else {
-        CHECK_EQ(vals->size(), total_val);
+        CHECK_EQ(vals->size(), total_val)<<vals->size()<<" "<<total_val;
       }
       Val* p_vals = vals->data();
       int *p_lens = nullptr;
@@ -694,7 +773,7 @@ int KVWorker<Val>::AddPullCB(
         if (lens->empty()) {
           lens->resize(keys.size());
         } else {
-          CHECK_EQ(lens->size(), keys.size());
+          CHECK_EQ(lens->size(), keys.size())<<lens->size()<<" "<<keys.size();
         }
         p_lens = lens->data();
       }

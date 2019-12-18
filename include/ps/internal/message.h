@@ -139,7 +139,7 @@ struct Meta {
   /** \brief default constructor */
   Meta() : head(kEmpty), app_id(kEmpty), customer_id(kEmpty),
            timestamp(kEmpty), sender(kEmpty), recver(kEmpty),
-           request(false), push(false), pull(false), simple_app(false) {}
+           request(false), push(false), pull(false), simple_app(false), priority(kEmpty) {}
   std::string DebugString() const {
     std::stringstream ss;
     if (sender == Node::kEmpty) {
@@ -156,7 +156,9 @@ struct Meta {
       ss << ", app_id=" << app_id
          << ", customer_id=" << customer_id
          << ", simple_app=" << simple_app
-         << ", push=" << push;
+         << ", push=" << push
+         << ", pull=" << pull
+         << ", priority=" << priority;
     }
     if (head != kEmpty) ss << ", head=" << head;
     if (body.size()) ss << ", body=" << body;

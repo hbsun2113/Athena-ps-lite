@@ -8,7 +8,8 @@ void StartServer() {
     return;
   }
   auto server = new KVServer<float>(0);
-  server->set_request_handle(KVServerDefaultHandle<float>());
+//  server->set_request_handle(KVServerDefaultHandle<float>());
+  server->set_request_handle(KVServerMatrixHandle<float>());
   RegisterExitCallback([server](){ delete server; });
 }
 

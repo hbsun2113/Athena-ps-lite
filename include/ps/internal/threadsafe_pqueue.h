@@ -46,7 +46,11 @@ class ThreadsafePQueue {
   class Compare {
    public:
     bool operator()(const Message &l, const Message &r) {
-      return l.meta.priority <= r.meta.priority;
+      // hbsun: note it is the max-heap,
+      // In other words, the priority is larger, the quickly it is processed
+      // push is first, pull is later
+      if(l.meta.priority != r.meta.priority) return l.meta.priority <= r.meta.priority;
+      return l.meta.push <= r.meta.push;
     }
   };
   mutable std::mutex mu_;
